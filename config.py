@@ -1,0 +1,1 @@
+max_characters_file_content = 10000
