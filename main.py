@@ -29,30 +29,58 @@ messages = [
     {"role": "user", "content": args.user_prompt},
 ]
 
-response = client.chat.completions.create(
-    model="openrouter/free",
-    messages=messages,
-    tools = available_functions,
-)
+# Limit the number of iterations to prevent infinite loops
+MAX_ITERATIONS = 20
 
-if not response.usage:
-    raise RuntimeError("failed API request")
+for _ in range(MAX_ITERATIONS):
 
-message = response.choices[0].message
+    # Ask the LLM for the next step
+    response = client.chat.completions.create(
+        model="openrouter/free",
+        messages=messages,
+        tools=available_functions,
+    )
 
-if args.verbose:
-    print(f"User prompt: {args.user_prompt}")
-    print(f"Prompt tokens: {response.usage.prompt_tokens}")
-    print(f"Response tokens: {response.usage.completion_tokens}")
+    if not response.usage:
+        raise RuntimeError("Failed API request")
 
-if message.tool_calls:
-    for tool_call in message.tool_calls:
-        result_message = call_function(tool_call, verbose=args.verbose)
+    # Retrieve the assistant's message
+    message = response.choices[0].message
 
-        if not result_message["content"]:
-            raise Exception("Tool call returned an empty result")
+    # Add the assistant's response to conversation history
+    messages.append(message)
 
-        if args.verbose:
-            print(f"-> {result_message['content']}")
+    if args.verbose:
+        print(f"User prompt: {args.user_prompt}")
+        print(f"Prompt tokens: {response.usage.prompt_tokens}")
+        print(f"Response tokens: {response.usage.completion_tokens}")
+
+    # Check whether the LLM requested any function calls
+    if message.tool_calls:
+
+        for tool_call in message.tool_calls:
+
+            # Execute the requested function
+            result_message = call_function(
+                tool_call,
+                verbose=args.verbose
+            )
+
+            if not result_message["content"]:
+                raise Exception("Tool call returned an empty result")
+
+            if args.verbose:
+                print(f"-> {result_message['content']}")
+
+            # Add the function result to conversation history
+            messages.append(result_message)
+
+    else:
+        # No more function calls: the LLM has finished
+        print(f"Final response:\n{message.content}")
+        break
+
 else:
-    print(message.content)
+    # This runs if all iterations were exhausted without a break
+    print("Error: Maximum iterations reached without a final response.")
+    exit(1)
